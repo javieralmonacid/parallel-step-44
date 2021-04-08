@@ -451,9 +451,9 @@ namespace Step44{
         struct ScratchData_RHS;
 
         struct PerTaskData_SC;
-        struct ScratchData_SC;
+        //struct ScratchData_SC;
 
-        struct PerTaskData_UQPH;
+        //struct PerTaskData_UQPH;
         struct ScratchData_UQPH;
 
         void make_grid();
@@ -856,10 +856,120 @@ namespace Step44{
                     symm_grad_Nx[q_point][k] = 0.0;
                 }
             }
-        }
-            
+        }      
     };
-    
+
+// Then we define structures to assemble the statically condensed tangent
+// matrix. Recall that we wish to solve for a displacement-based formulation.
+// We do the condensation at the element level as the $\widetilde{p}$ and
+// $\widetilde{J}$ fields are element-wise discontinuous.  As these operations
+// are matrix-based, we need to setup a number of matrices to store the local
+// contributions from a number of the tangent matrix sub-blocks.  We place
+// these in the PerTaskData struct.
+//
+// We choose not to reset any data in the <code>reset()</code> function as the
+// matrix extraction and replacement tools will take care of this
+    template <int dim>
+    struct Solid<dim>::PerTaskData_SC
+    {
+        FullMatrix<double> cell_matrix
+        std::vector<types::global_dof_index> local_dof_indices;
+
+        FullMatrix<double>        k_orig;
+        FullMatrix<double>        k_pu;
+        FullMatrix<double>        k_pJ;
+        FullMatrix<double>        k_JJ;
+        FullMatrix<double>        k_pJ_inv;
+        FullMatrix<double>        k_bbar;
+        FullMatrix<double>        A;
+        FullMatrix<double>        B;
+        FullMatrix<double>        C;
+
+        PerTaskData_SC(const unsigned int dofs_per_cell,
+                       const unsigned int n_u,
+                       const unsigned int n_p,
+                       const unsigned int n_J):
+            cell_matrix(dofs_per_cell, dofs_per_cell),
+            local_dof_indices(dofs_per_cell),
+            k_orig(dofs_per_cell, dofs_per_cell),
+            k_pu(n_p, n_u),
+            k_pJ(n_p, n_J),
+            k_JJ(n_J, n_J),
+            k_pJ_inv(n_p, n_J),
+            k_bbar(n_u, n_u),
+            A(n_J,n_u),
+            B(n_J, n_u),
+            C(n_p, n_u)
+        {}
+
+        void reset()
+        {}
+    };
+
+// The ScratchData object will be used to store an alias for the solution
+// vector so that we don't have to copy this large data structure. We then
+// define a number of vectors to extract the solution values and gradients at
+// the quadrature points.
+
+    template <int dim>
+    struct Solid<dim>::ScratchData_UQPH
+    {
+        const PETScWrappers::MPI::BlockVector &solution_total;
+
+         // Quadrature point solution
+        std::vector<Tensor<2, dim> > solution_grads_u_total;
+        std::vector<double>          solution_values_p_total;
+        std::vector<double>          solution_values_J_total;
+
+        // Integration helper
+        FEValues<dim>                fe_values_ref;
+
+        ScratchData_UQPH(const FiniteElement<dim> &fe_cell,
+                         const QGauss<dim> &qf_cell,
+                         const UpdateFlags uf_cell,
+                         const PETScWrappers::MPI::BlockVector &solution_total):
+            solution_total(solution_total),
+            solution_grads_u_total(qf_cell.size()),
+            solution_values_p_total(qf_cell.size()),
+            solution_values_J_total(qf_cell.size()),
+            fe_values_ref(fe_cell, qf_cell, uf_cell)
+        {}
+
+        ScratchData_UQPH(const ScratchData_UQPH &rhs):
+            solution_total(rhs.solution_total),
+            solution_grads_u_total(rhs.solution_grads_u_total),
+            solution_values_p_total(rhs.solution_values_p_total),
+            solution_values_J_total(rhs.solution_values_J_total),
+            fe_values_ref(rhs.fe_values_ref.get_fe(),
+                          rhs.fe_values_ref.get_quadrature(),
+                          rhs.fe_values_ref.get_update_flags())
+        {}
+
+        void reset()
+        {
+            const unsigned int n_q_points = solution_grads_u_total.size();
+            for (unsigned int q = 0; q < n_q_points; ++q)
+            {
+                solution_grads_u_total[q] = 0.0;
+                solution_values_p_total[q] = 0.0;
+                solution_values_J_total[q] = 0.0;
+            }
+        };
+
+
+
+
+    };
+
+
+
+
+
+
+
+
+
+
 
 }
 
