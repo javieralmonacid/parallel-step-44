@@ -54,6 +54,7 @@
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 //#include <deal.II/lac/affine_constraints.h> // NEW
 #include <deal.II/lac/constraint_matrix.h> // FROM STEP-44
+#include <deal.II/lac/sparsity_tools.h> // FROM STEP-55
 #include <deal.II/lac/full_matrix.h>
 
 #include <deal.II/lac/petsc_parallel_block_sparse_matrix.h>
@@ -457,7 +458,7 @@ namespace Step44{
         struct ScratchData_UQPH;
 
         void make_grid();
-        void setup_system();
+        void system_setup();
         void determine_component_extractors();
 
         void assemble_system_tangent();
@@ -474,7 +475,7 @@ namespace Step44{
 
         void assemble_sc();
         void assemble_sc_one_cell(const typename DoFHandler<dim>::active_cell_iterator &cell,
-                                  ScratchData_SC &scratch,
+                                  /*ScratchData_SC &scratch,*/
                                   PerTaskData_SC &data);
         void copy_local_to_global_sc(const PerTaskData_SC &data);
 
@@ -488,9 +489,10 @@ namespace Step44{
 
         void update_qph_incremental(const PETScWrappers::MPI::BlockVector &solution_delta);
         void update_qph_incremental_one_cell(const typename DoFHandler<dim>::active_cell_iterator &cell,
-                                             ScratchData_UQPH &scratch,
-                                             PerTaskData_UQPH &data);
-        void copy_local_to_global_UQPH(const PerTaskData_UQPH &/*data*/)
+                                             ScratchData_UQPH &scratch
+                                             /*PerTaskData_UQPH &data*/);
+        //void copy_local_to_global_UQPH(/*const PerTaskData_UQPH &/*data*/)
+        void copy_local_to_global_UQPH()
         {}
 
         // Solve for the displacement using a Newton-Raphson method. We break this
@@ -654,9 +656,9 @@ namespace Step44{
         triangulation(mpi_communicator, typename Triangulation<dim>::MeshSmoothing(Triangulation<dim>::maximum_smoothing)),
         time(parameters.end_time, parameters.delta_t),
         timer(mpi_communicator,
-            pcout,
-            TimerOutput::summary,
-            TimerOutput::wall_times),
+              pcout,
+              TimerOutput::summary,
+              TimerOutput::wall_times),
         degree(parameters.poly_degree),
         // The Finite Element System is composed of dim continuous displacement
         // DOFs, and discontinuous pressure and dilatation DOFs. In an attempt to
@@ -872,7 +874,7 @@ namespace Step44{
     template <int dim>
     struct Solid<dim>::PerTaskData_SC
     {
-        FullMatrix<double> cell_matrix
+        FullMatrix<double> cell_matrix;
         std::vector<types::global_dof_index> local_dof_indices;
 
         FullMatrix<double>        k_orig;
@@ -954,12 +956,219 @@ namespace Step44{
                 solution_values_p_total[q] = 0.0;
                 solution_values_J_total[q] = 0.0;
             }
-        };
-
-
-
-
+        }
     };
+
+// @sect4{Solid::make_grid}
+
+// On to the first of the private member functions. Here we create the
+// triangulation of the domain, for which we choose the scaled cube with each
+// face given a boundary ID number.  The grid must be refined at least once
+// for the indentation problem.
+//
+// We then determine the volume of the reference configuration and print it
+// for comparison:
+
+    template <int dim>
+    void Solid<dim>::make_grid()
+    {
+        GridGenerator::hyper_rectangle(triangulation,
+                                       (dim==3 ? Point<dim>(0.0, 0.0, 0.0) : Point<dim>(0.0, 0.0)),
+                                       (dim==3 ? Point<dim>(1.0, 1.0, 1.0) : Point<dim>(1.0, 1.0)),
+                                        true);
+        GridTools::scale(parameters.scale, triangulation);
+        triangulation.refine_global(std::max (1U, parameters.global_refinement));
+
+        vol_reference = GridTools::volume(triangulation);
+        std::cout << "Grid:\n\t Reference volume: " << vol_reference << std::endl;
+
+        // Since we wish to apply a Neumann BC to a patch on the top surface, we
+        // must find the cell faces in this part of the domain and mark them with
+        // a distinct boundary ID number.  The faces we are looking for are on the
+        // +y surface and will get boundary ID 6 (zero through five are already
+        // used when creating the six faces of the cube domain):
+        typename Triangulation<dim>::active_cell_iterator cell =
+            triangulation.begin_active(), endc = triangulation.end();
+        
+        for(; cell != endc; ++cell)
+            for (unsigned int face = 0; face < GeometryInfo<dim>::faces_per_cell; ++face)
+            {
+                if (cell->face(face)->at_boundary() == true &&
+                    cell->face(face)->center()[1] == 1.0 * parameters.scale)
+                {
+                    if (dim == 3)
+                    {
+                        if (cell->face(face)->center()[0] < 0.5 * parameters.scale &&
+                            cell->face(face)->center()[2] < 0.5 * parameters.scale)
+                            cell->face(face)->set_boundary_id(6);
+                    }
+                    else
+                    {
+                        if (cell->face(face)->center()[0] < 0.5 * parameters.scale)
+                            cell->face(face)->set_boundary_id(6);
+                    }
+                }
+            }
+    }
+
+// @sect4{Solid::system_setup}
+
+// Next we describe how the FE system is setup.  We first determine the number
+// of components per block. Since the displacement is a vector component, the
+// first dim components belong to it, while the next two describe scalar
+// pressure and dilatation DOFs.
+    template <int dim>
+    void Solid<dim>::system_setup()
+    {
+        timer.enter_subsection("Setup system");
+        
+        // Partition triangulation
+        GridTools::partition_triangulation (n_mpi_processes, triangulation);
+
+        block_component = std::vector<unsigned int> (n_components, u_dof); // Displacement
+        block_component[p_component] = p_dof; // Pressure
+        block_component[J_component] = J_dof; // Dilation
+
+        // The DOF handler is then initialised and we renumber the grid in an
+        // efficient manner. We also record the number of DOFs per block.
+        dof_handler_ref.distribute_dofs(fe);
+        DoFRenumbering::Cuthill_McKee(dof_handler_ref);
+        DoFRenumbering::component_wise(dof_handler_ref, block_component);
+
+        // NEW================================================================================================
+
+        // Count DOFs per block
+        //dofs_per_block.clear(); // might not be needed
+        //dofs_per_block.resize(n_blocks); // might not be needed
+        DoFTools::count_dofs_per_block(dof_handler_ref, dofs_per_block, block_component);
+
+
+        // Determine DOFs per subdomain
+        all_locally_owned_dofs = DoFTools::locally_owned_dofs_per_subdomain (dof_handler_ref);
+        std::vector<IndexSet> all_locally_relevant_dofs
+            = DoFTools::locally_relevant_dofs_per_subdomain (dof_handler_ref);
+
+        // Determine which DOFs belong to current process
+        locally_owned_dofs.clear();
+        locally_owned_partitioning.clear();
+        Assert(all_locally_owned_dofs.size() > this_mpi_process, ExcInternalError());
+        locally_owned_dofs = all_locally_owned_dofs[this_mpi_process];
+
+        locally_relevant_dofs.clear();
+        locally_relevant_partitioning.clear();
+        Assert(all_locally_relevant_dofs.size() > this_mpi_process, ExcInternalError());
+        locally_relevant_dofs = all_locally_relevant_dofs[this_mpi_process];
+
+        locally_owned_partitioning.reserve(n_blocks);
+        locally_relevant_partitioning.reserve(n_blocks);
+
+        for (unsigned int b = 0; b < n_blocks; ++b)
+        {
+            const types::global_dof_index idx_begin
+                = std::accumulate(dofs_per_block.begin(), std::next(dofs_per_block.begin(),b), 0);
+            const types::global_dof_index idx_end
+                = std::accumulate(dofs_per_block.begin(), std::next(dofs_per_block.begin(),b+1), 0);
+
+            locally_owned_partitioning.push_back(locally_owned_dofs.get_view(idx_begin, idx_end));
+            locally_relevant_partitioning.push_back(locally_relevant_dofs.get_view(idx_begin, idx_end));
+        }
+
+        //
+        // Output info -----------------------------------------------------------
+        // 
+        pcout << "  Number of active cells: " << triangulation.n_active_cells()
+              << " (by partition:";
+        for (unsigned int p = 0; p < n_mpi_processes; ++p){
+            pcout << (p==0 ? ' ' : '+') 
+                  << (GridTools::count_cells_with_subdomain_association (triangulation,p));
+        }   
+        pcout << ")" << std::endl;
+
+        pcout << "  Number of degrees of freedom: " << dof_handler_ref.n_dofs()
+              << " (by partition:";
+        for (unsigned int p=0; p<n_mpi_processes; ++p){
+            pcout << (p==0 ? ' ' : '+')
+                  << (DoFTools::count_dofs_with_subdomain_association (dof_handler_ref,p));
+        }      
+        pcout << ")" << std::endl;
+        pcout << "  Number of degrees of freedom per block: "
+              << "[n_u, n_p, n_J] = ["
+              << dofs_per_block[u_dof] << ", "
+              << dofs_per_block[p_dof] << ", "
+              << dofs_per_block[J_dof] << "]"
+              << std::endl;
+        
+        // END OF NEW PART ====================================================================
+        
+        // Setup the sparsity pattern and tangent matrix (WE FOLLOW STEP 55 FOR THIS)
+        {
+            tangent_matrix.clear();
+
+            // We optimise the sparsity pattern to reflect the particular
+            // structure of the system matrix and prevent unnecessary data 
+            // creation for the right-diagonal block components.
+            Table<2, DoFTools::Coupling> coupling(n_components, n_components);
+            for (unsigned int ii = 0; ii < n_components; ++ii)
+                for (unsigned int jj = 0; jj < n_components; ++jj)
+                {
+                    if ((   (ii <  p_component) && (jj == J_component))
+                        || ((ii == J_component) && (jj < p_component))
+                        || ((ii == p_component) && (jj == p_component)  ))
+                        coupling[ii][jj] = DoFTools::none;
+                    else
+                        coupling[ii][jj] = DoFTools::always;
+                }
+
+            BlockDynamicSparsityPattern dsp(dofs_per_block, dofs_per_block);
+
+            DoFTools::make_sparsity_pattern(dof_handler_ref, coupling, dsp, constraints, false);
+
+            SparsityTools::distribute_sparsity_pattern(dsp, dof_handler_ref.locally_owned_dofs_per_processor(), 
+                                                       mpi_communicator, locally_relevant_dofs);
+
+            tangent_matrix.reinit(locally_owned_partitioning, dsp, mpi_communicator);
+        }
+
+        // We then set up storage vectors
+        system_rhs.reinit(locally_owned_partitioning, mpi_communicator);
+        solution_n.reinit(locally_owned_partitioning, mpi_communicator);
+
+        // ... and finally set up the quadrature point history
+        //setup_qph(); 
+
+        timer.leave_subsection();
+    }
+
+ // @sect4{Solid::determine_component_extractors}
+// Next we compute some information from the FE system that describes which local
+// element DOFs are attached to which block component.  This is used later to
+// extract sub-blocks from the global matrix.
+//
+// In essence, all we need is for the FESystem object to indicate to which
+// block component a DOF on the reference cell is attached to.  Currently, the
+// interpolation fields are setup such that 0 indicates a displacement DOF, 1
+// a pressure DOF and 2 a dilatation DOF.
+  template <int dim>
+  void Solid<dim>::determine_component_extractors()
+  {
+        element_indices_u.clear();
+        element_indices_p.clear();
+        element_indices_J.clear();
+
+        for (unsigned int k = 0; k < fe.dofs_per_cell; ++k)
+        {
+            const unsigned int k_group = fe.system_to_base_index(k).first.first;
+            if (k_group == u_dof)
+                element_indices_u.push_back(k);
+            else if (k_group == p_dof)
+                element_indices_p.push_back(k);
+            else if (k_group == J_dof)
+                element_indices_J.push_back(k);
+            else{
+                Assert(k_group <= J_dof, ExcInternalError());
+            }
+        }
+  }   
 
 
 
