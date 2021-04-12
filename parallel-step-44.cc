@@ -34,7 +34,7 @@
 // This header gives us the functionality to store data at quadrature points
 #include <deal.II/base/quadrature_point_data.h>
 
-//#include <deal.II/grid/filtered_iterator.h>
+#include <deal.II/grid/filtered_iterator.h>
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/grid_in.h>
@@ -489,11 +489,10 @@ namespace Step44{
 
         void update_qph_incremental(const PETScWrappers::MPI::BlockVector &solution_delta);
         void update_qph_incremental_one_cell(const typename DoFHandler<dim>::active_cell_iterator &cell,
-                                             ScratchData_UQPH &scratch
-                                             /*PerTaskData_UQPH &data*/);
-        //void copy_local_to_global_UQPH(/*const PerTaskData_UQPH &/*data*/)
-        void copy_local_to_global_UQPH()
-        {}
+                                             ScratchData_UQPH &scratch);
+        //void copy_local_to_global_UQPH(/*const PerTaskData_UQPH &/*data*/) // this function is not needed
+        //void copy_local_to_global_UQPH()
+        //{}
 
         // Solve for the displacement using a Newton-Raphson method. We break this
         // function into the nonlinear loop and the function that solves the
@@ -531,7 +530,8 @@ namespace Step44{
         // step-18, deal.II's native quadrature point data manager is employed
         // here.
         CellDataStorage<typename Triangulation<dim>::cell_iterator,
-                        PointHistory<dim> > quadrature_point_history; // PROBABLY THIS CELL ITERATOR IS ENOUGH
+                        PointHistory<dim> > quadrature_point_history; // PROBABLY THIS CELL ITERATOR IS ENOUGH // maybe not
+        //std::vector<PointHistory<dim> > quadrature_point_history; // this is borrowed from step-18
 
         // A description of the finite-element system including the displacement
         // polynomial degree, the degree-of-freedom handler, number of DoFs per
@@ -683,7 +683,7 @@ namespace Step44{
         n_q_points_f (qf_face.size())
     {
         Assert(dim==2 || dim==3, ExcMessage("This problem only works in 2 or 3 space dimensions."));
-        //determine_component_extractors();
+        determine_component_extractors();
     }
 
     // The class destructor simply clears the data held by the DOFHandler
@@ -1134,7 +1134,7 @@ namespace Step44{
         solution_n.reinit(locally_owned_partitioning, mpi_communicator);
 
         // ... and finally set up the quadrature point history
-        //setup_qph(); 
+        setup_qph(); 
 
         timer.leave_subsection();
     }
@@ -1148,9 +1148,9 @@ namespace Step44{
 // block component a DOF on the reference cell is attached to.  Currently, the
 // interpolation fields are setup such that 0 indicates a displacement DOF, 1
 // a pressure DOF and 2 a dilatation DOF.
-  template <int dim>
-  void Solid<dim>::determine_component_extractors()
-  {
+    template <int dim>
+    void Solid<dim>::determine_component_extractors()
+    {
         element_indices_u.clear();
         element_indices_p.clear();
         element_indices_J.clear();
@@ -1168,7 +1168,116 @@ namespace Step44{
                 Assert(k_group <= J_dof, ExcInternalError());
             }
         }
-  }   
+    }
+
+// @sect4{Solid::setup_qph}
+// The method used to store quadrature information is already described in
+// step-18. >>DEL>>> Here we implement a similar setup for a SMP machine. <<DEL<<
+//
+// Firstly the actual QPH data objects are created. This must be done only
+// once the grid is refined to its finest level.
+
+    template <int dim>
+    void Solid<dim>::setup_qph()
+    {
+        pcout << "    Setting up quadrature point data...\n";
+
+        quadrature_point_history.initialize(triangulation.begin_active(),
+                                            triangulation.end(),
+                                            n_q_points);
+
+        // Next we setup the initial quadrature point data.
+        // Note that when the quadrature point data is retrieved,
+        // it is returned as a vector of smart pointers.
+        FilteredIterator<typename DoFHandler<dim>::active_cell_iterator>
+            cell (IteratorFilters::SubdomainEqualTo(this_mpi_process),
+                  dof_handler_ref.begin_active()),
+            endc (IteratorFilters::SubdomainEqualTo(this_mpi_process),
+                  dof_handler_ref.end());
+        for (; cell != endc; ++cell)
+        {
+            Assert(cell->subdomain_id()==this_mpi_process, ExcInternalError());
+            const std::vector<std::shared_ptr<PointHistory<dim> > > 
+                lqph = quadrature_point_history.get_data(cell);
+            Assert(lqph.size() == n_q_points, ExcInternalError());
+            for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+                lqph[q_point]->setup_lqp(parameters);
+        }
+    }
+    
+// @sect4{Solid::update_qph_incremental}
+// As the update of QP information occurs frequently and involves a number of
+// expensive operations, >> DEL>>> we define a multithreaded approach to distributing
+// the task across a number of CPU cores. << DEL <<
+//
+// To start this, we first we need to obtain the total solution as it stands
+// at this Newton increment and then create the initial copy of the scratch and
+// copy data objects:
+    template <int dim>
+    void Solid<dim>::update_qph_incremental(const PETScWrappers::MPI::BlockVector &solution_delta)
+    {
+        timer.enter_subsection("Update QPH data");
+        pcout << " UQPH \n";
+
+        const PETScWrappers::MPI::BlockVector solution_total(get_total_solution(solution_delta));
+
+        const UpdateFlags uf_UQPH(update_values | update_gradients);
+        //PerTaskData_UQPH per_task_data_UQPH;
+        ScratchData_UQPH scratch_data_UQPH(fe, qf_cell, uf_UQPH, solution_total); // AMPERSANDS MIGHT BE NECESSARY
+
+        FilteredIterator<typename DoFHandler<dim>::active_cell_iterator>
+            cell (IteratorFilters::SubdomainEqualTo(this_mpi_process),
+                  dof_handler_ref.begin_active()),
+            endc (IteratorFilters::SubdomainEqualTo(this_mpi_process),
+                  dof_handler_ref.end());
+        for (; cell != endc; ++cell)
+        {
+            Assert(cell->subdomain_id()==this_mpi_process, ExcInternalError()); // This only checks if the filtered iterator is working
+            update_qph_incremental_one_cell(cell, scratch_data_UQPH);
+        }
+
+        timer.leave_subsection();
+    }
+
+// Now we describe how we extract data from the solution vector and pass it
+// along to each QP storage object for processing.
+    template <int dim>
+    void Solid<dim>::update_qph_incremental_one_cell(const typename DoFHandler<dim>::active_cell_iterator &cell,
+                                             ScratchData_UQPH &scratch)
+    {
+        const std::vector<std::shared_ptr<PointHistory<dim> > > 
+            lqph = quadrature_point_history.get_data(cell);
+        Assert(lqph.size() == n_q_points, ExcInternalError());
+
+        Assert(scratch.solution_grads_u_total.size() == n_q_points, ExcInternalError());
+        Assert(scratch.solution_values_p_total.size() == n_q_points, ExcInternalError());
+        Assert(scratch.solution_values_J_total.size() == n_q_points, ExcInternalError());
+
+        scratch.reset();
+
+        // We first need to find the values and gradients at quadrature points
+        // inside the current cell and then we update each local QP using the
+        // displacement gradient and total pressure and dilatation solution
+        // values:
+        scratch.fe_values_ref.reinit(cell);
+        scratch.fe_values_ref[u_fe].get_function_gradients(scratch.solution_total,
+                                                           scratch.solution_grads_u_total);
+        scratch.fe_values_ref[p_fe].get_function_values(scratch.solution_total,
+                                                        scratch.solution_values_p_total);
+        scratch.fe_values_ref[J_fe].get_function_values(scratch.solution_total,
+                                                        scratch.solution_values_J_total);
+
+        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+            lqph[q_point]->update_values(scratch.solution_grads_u_total[q_point],
+                                         scratch.solution_values_p_total[q_point],
+                                         scratch.solution_values_J_total[q_point]);
+    }
+
+
+    
+
+
+
 
 
 
