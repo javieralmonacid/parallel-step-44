@@ -693,6 +693,32 @@ namespace Step44{
         dof_handler_ref.clear();
     }
 
+// In solving the quasi-static problem, the time becomes a loading parameter,
+// i.e. we increase the loading linearly with time, making the two concepts
+// interchangeable. We choose to increment time linearly using a constant time
+// step size.
+//
+// We start the function with preprocessing, setting the initial dilatation
+// values, and then output the initial grid before starting the simulation
+//  proper with the first time (and loading)
+// increment.
+//
+// Care must be taken (or at least some thought given) when imposing the
+// constraint $\widetilde{J}=1$ on the initial solution field. The constraint
+// corresponds to the determinant of the deformation gradient in the undeformed
+// configuration, which is the identity tensor.
+// We use FE_DGPMonomial bases to interpolate the dilatation field, thus we can't
+// simply set the corresponding dof to unity as they correspond to the
+// monomial coefficients. Thus we use the VectorTools::project function to do
+// the work for us. The VectorTools::project function requires an argument
+// indicating the hanging node constraints. We have none in this program
+// So we have to create a constraint object. In its original state, constraint
+// objects are unsorted, and have to be sorted (using the ConstraintMatrix::close function)
+// before they can be used. Have a look at step-21 for more information.
+// We only need to enforce the initial condition on the dilatation.
+// In order to do this, we make use of a ComponentSelectFunction which acts
+// as a mask and sets the J_component of n_components to 1. This is exactly what
+// we want. Have a look at its usage in step-20 for more information.
     template <int dim>
     void Solid<dim>::run()
     {
