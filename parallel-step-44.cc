@@ -460,6 +460,7 @@ namespace Step44{
         void make_grid();
         void system_setup(PETScWrappers::MPI::BlockVector &solution_delta);
         void determine_component_extractors();
+        void set_initial_dilation(PETScWrappers::MPI::BlockVector &solution_n);
 
         void assemble_system_tangent();
         void assemble_system_tangent_one_cell(const typename DoFHandler<dim>::active_cell_iterator &cell,
@@ -728,7 +729,8 @@ namespace Step44{
         PETScWrappers::MPI::BlockVector solution_delta;
 
         make_grid();
-        system_setup(solution_delta); // This step will initialize solution_delta
+        system_setup(solution_delta); // This step will initialize solution_delta and solution_n
+        /*
         {
             ConstraintMatrix constraints;
             constraints.close();
@@ -741,6 +743,8 @@ namespace Step44{
                                  J_mask,
                                  solution_n);
         }
+        */
+        set_initial_dilation(solution_n);
         output_results();
         time.increment();
         
@@ -1231,6 +1235,104 @@ namespace Step44{
                 Assert(k_group <= J_dof, ExcInternalError());
             }
         }
+    }
+
+// @sect4{Solid::project_dilation}
+// The VectorTools::project() is not available in deal.II v8.5.0 for an MPI-based
+// code, so we have to implement it by ourselves. Recall that the main objective
+// is to initialize the dilation as J = 1 by projecting this function onto the
+// dilation finite element space.
+    template <int dim>
+    void Solid<dim>::set_initial_dilation(PETScWrappers::MPI::BlockVector &solution_n)
+    {
+        DoFHandler<dim> dof_handler_J(triangulation);
+        FE_DGPMonomial<dim> fe_J(parameters.poly_degree - 1);
+
+        IndexSet                         locally_owned_dofs_J;
+        IndexSet                         locally_relevant_dofs_J;
+        ConstraintMatrix                 constraints_J;
+        //constraints_J.close();
+        PETScWrappers::MPI::SparseMatrix mass_matrix;
+        PETScWrappers::MPI::Vector       load_vector;
+        PETScWrappers::MPI::Vector       J_local;
+
+        // Setup system
+        dof_handler_J.distribute_dofs(fe_J);
+        locally_owned_dofs_J = dof_handler_J.locally_owned_dofs();
+        DoFTools::extract_locally_relevant_dofs(dof_handler_J, locally_relevant_dofs_J);
+
+        J_local.reinit(locally_owned_dofs_J, locally_relevant_dofs_J, mpi_communicator);
+        load_vector.reinit(locally_owned_dofs_J, locally_relevant_dofs_J, mpi_communicator);
+
+        constraints_J.clear();
+        constraints_J.reinit(locally_relevant_dofs_J);
+        //VectorTools::interpolate_boundary_values ... not needed?
+        constraints_J.close();
+
+        DynamicSparsityPattern dsp(locally_relevant_dofs_J);
+        DoFTools::make_sparsity_pattern(dof_handler_J, dsp, constraints_J, false);
+        SparsityTools::distribute_sparsity_pattern(dsp, dof_handler_J.n_locally_owned_dofs_per_processor(),
+                                                   mpi_communicator, locally_relevant_dofs_J);
+        
+        mass_matrix.reinit(locally_owned_dofs_J, locally_owned_dofs_J, dsp, mpi_communicator);
+
+        // Assemble system
+        const QGauss<dim> quad_formula(parameters.quad_order);
+        FEValues<dim> fe_values(fe_J, quad_formula, update_values | update_quadrature_points | update_JxW_values);
+        const unsigned int dofs_per_cell_J = fe_J.dofs_per_cell;
+        const unsigned int n_q_points_J = quad_formula.size();
+        
+        FullMatrix<double> cell_matrix(dofs_per_cell_J, dofs_per_cell_J);
+        Vector<double> cell_rhs(dofs_per_cell_J);
+        std::vector<types::global_dof_index> local_dof_indices_J(dofs_per_cell);
+
+        typename DoFHandler<dim>::active_cell_iterator
+            cell = dof_handler_J.begin_active(),
+            endc = dof_handler_J.end();
+
+        for(; cell != endc; ++cell)
+            if (cell->is_locally_owned())
+            {
+                cell_matrix = 0;
+                cell_rhs = 0;
+                pcout << "LINE 1" << std::endl;
+                fe_values.reinit(cell);
+                pcout << "LINE 2" << std::endl;
+                
+                for (unsigned int q_point = 0; q_point < n_q_points_J; ++q_point)
+                {
+                    for (unsigned int i = 0; i < dofs_per_cell_J; ++i)
+                    {
+                        for (unsigned int j = 0; j < dofs_per_cell_J; ++j)
+                        {
+                            cell_matrix(i,j) += (fe_values.shape_value(i,q_point) *
+                                                 fe_values.shape_value(j,q_point) *
+                                                 fe_values.JxW(q_point));
+                            
+                            cell_rhs(i) += (1 * 
+                                            fe_values.shape_value(i,q_point) * 
+                                            fe_values.JxW(q_point));
+                        }
+                    }
+                }
+                cell->get_dof_indices(local_dof_indices_J);
+                constraints.distribute_local_to_global(cell_matrix, cell_rhs, local_dof_indices_J,
+                                                       mass_matrix, load_vector);
+            }
+        mass_matrix.compress(VectorOperation::add);
+        load_vector.compress(VectorOperation::add);
+
+        // Solve
+        PETScWrappers::MPI::Vector J_distributed(locally_owned_dofs_J, mpi_communicator);
+        SolverControl solver_control(dof_handler_J.n_dofs(), 1e-12);
+        PETScWrappers::SolverCG solver(solver_control, mpi_communicator);
+
+        PETScWrappers::PreconditionJacobi preconditioner;
+        preconditioner.initialize(mass_matrix, PETScWrappers::PreconditionJacobi::AdditionalData());
+        solver.solve(mass_matrix, J_distributed, load_vector, preconditioner);
+        constraints.distribute(J_distributed);
+
+        solution_n.block(J_dof) = J_distributed;
     }
 
 // @sect4{Solid::setup_qph}
