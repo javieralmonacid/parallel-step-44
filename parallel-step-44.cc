@@ -745,7 +745,7 @@ namespace Step44{
         }
         */
         set_initial_dilation(solution_n);
-        output_results();
+        //output_results();
         time.increment();
         
         while (time.current() < time.end())
@@ -759,7 +759,7 @@ namespace Step44{
 
             // ...and plot the results before moving on happily to the next time
             // step:
-            output_results();
+            //output_results();
             time.increment();
         }
 
@@ -1245,6 +1245,7 @@ namespace Step44{
     template <int dim>
     void Solid<dim>::set_initial_dilation(PETScWrappers::MPI::BlockVector &solution_n)
     {
+        pcout << "Starting set_initial_dilation" << std::endl;
         DoFHandler<dim> dof_handler_J(triangulation);
         FE_DGPMonomial<dim> fe_J(parameters.poly_degree - 1);
 
@@ -1284,20 +1285,21 @@ namespace Step44{
         
         FullMatrix<double> cell_matrix(dofs_per_cell_J, dofs_per_cell_J);
         Vector<double> cell_rhs(dofs_per_cell_J);
-        std::vector<types::global_dof_index> local_dof_indices_J(dofs_per_cell);
+        std::vector<types::global_dof_index> local_dof_indices_J(dofs_per_cell_J);
 
         typename DoFHandler<dim>::active_cell_iterator
             cell = dof_handler_J.begin_active(),
             endc = dof_handler_J.end();
+
+    
+        PETScWrappers::MPI::Vector load_vector_tmp(locally_owned_dofs_J, mpi_communicator);
 
         for(; cell != endc; ++cell)
             if (cell->is_locally_owned())
             {
                 cell_matrix = 0;
                 cell_rhs = 0;
-                pcout << "LINE 1" << std::endl;
                 fe_values.reinit(cell);
-                pcout << "LINE 2" << std::endl;
                 
                 for (unsigned int q_point = 0; q_point < n_q_points_J; ++q_point)
                 {
@@ -1316,11 +1318,11 @@ namespace Step44{
                     }
                 }
                 cell->get_dof_indices(local_dof_indices_J);
-                constraints.distribute_local_to_global(cell_matrix, cell_rhs, local_dof_indices_J,
-                                                       mass_matrix, load_vector);
+                constraints_J.distribute_local_to_global(cell_matrix, cell_rhs, local_dof_indices_J,
+                                                       mass_matrix, load_vector_tmp);
             }
         mass_matrix.compress(VectorOperation::add);
-        load_vector.compress(VectorOperation::add);
+        load_vector_tmp.compress(VectorOperation::add);
 
         // Solve
         PETScWrappers::MPI::Vector J_distributed(locally_owned_dofs_J, mpi_communicator);
@@ -1329,10 +1331,13 @@ namespace Step44{
 
         PETScWrappers::PreconditionJacobi preconditioner;
         preconditioner.initialize(mass_matrix, PETScWrappers::PreconditionJacobi::AdditionalData());
-        solver.solve(mass_matrix, J_distributed, load_vector, preconditioner);
-        constraints.distribute(J_distributed);
+        solver.solve(mass_matrix, J_distributed, load_vector_tmp, preconditioner);
+        constraints_J.distribute(J_distributed);
 
         solution_n.block(J_dof) = J_distributed;
+
+        dof_handler_J.clear();
+        pcout << "End set_initial_dilation" << std::endl;
     }
 
 // @sect4{Solid::setup_qph}
@@ -1346,10 +1351,20 @@ namespace Step44{
     void Solid<dim>::setup_qph()
     {
         pcout << "    Setting up quadrature point data...\n";
-
+        /*{
+            FilteredIterator<typename DoFHandler<dim>::active_cell_iterator>
+                cell (IteratorFilters::SubdomainEqualTo(this_mpi_process),
+                    dof_handler_ref.begin_active()),
+                endc (IteratorFilters::SubdomainEqualTo(this_mpi_process),
+                    dof_handler_ref.end());
+                quadrature_point_history.initialize(cell,
+                                            endc,
+                                            n_q_points);
+        }*/
         quadrature_point_history.initialize(triangulation.begin_active(),
                                             triangulation.end(),
                                             n_q_points);
+        
 
         // Next we setup the initial quadrature point data.
         // Note that when the quadrature point data is retrieved,
@@ -1476,7 +1491,7 @@ namespace Step44{
         for (; newton_iteration < parameters.max_iterations_NR; ++newton_iteration)
         {
             pcout << " " << std::setw(2) << newton_iteration << " " << std::flush;
-            make_constraints(newton_iteration);
+            //make_constraints(newton_iteration);
 
             assemble_system_rhs();
             get_error_residual(error_residual);
@@ -2603,11 +2618,12 @@ namespace Step44{
     template <int dim>
     void Solid<dim>::output_results() const
     {
+        pcout << "Starting output_results" << std::endl;
         PETScWrappers::MPI::BlockVector solution_total(locally_owned_partitioning,
-                                                       locally_relevant_partitioning,
+                                                       //locally_relevant_partitioning,
                                                        mpi_communicator);
         PETScWrappers::MPI::BlockVector residual(locally_owned_partitioning,
-                                                 locally_relevant_partitioning,
+                                                 //locally_relevant_partitioning,
                                                  mpi_communicator);
         solution_total = solution_n;
         residual = system_rhs;
@@ -2733,6 +2749,8 @@ namespace Step44{
             std::ofstream pvd_output (filename_pvd.c_str());
             DataOutBase::write_pvd_record (pvd_output, time_and_name_history);
         }
+
+        pcout << "End set_initial_dilation" << std::endl;
     }
 }
 
