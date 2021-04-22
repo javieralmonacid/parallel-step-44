@@ -92,8 +92,8 @@ namespace Parameters
     {
         prm.enter_subsection("Linear solver");
         {
-            prm.declare_entry("Solver type", "CG",
-                            Patterns::Selection("CG|Direct"),
+            prm.declare_entry("Solver type", "cg",
+                            Patterns::Selection("cg|Direct"),
                             "Type of solver used to solve the linear system");
 
             prm.declare_entry("Residual", "1e-6",

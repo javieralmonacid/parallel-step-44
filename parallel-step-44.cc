@@ -2283,7 +2283,9 @@ namespace Step44{
                   dof_handler_ref.end());
         for (; cell != endc; ++cell)
         {
+            pcout << "Beginning assemble_SC one cell" << std::endl;
             assemble_sc_one_cell(cell, per_task_data);
+            pcout << "End assemble_SC" << std::endl;
             copy_local_to_global_sc(per_task_data);
         }
 
@@ -2378,7 +2380,7 @@ namespace Step44{
                 pcout << " SLV " << std::flush;
                 // LINEAR SOLVERS
                 // PETSC============================================================================
-                if (parameters.type_lin == "CG")
+                if (parameters.type_lin == "cg")
                 {
                     const int solver_its = tangent_matrix.block(u_dof, u_dof).m()
                                          * parameters.max_iterations_lin;
@@ -2455,7 +2457,7 @@ namespace Step44{
             timer.enter_subsection("Linear solver");
             pcout << " SLV " << std::flush;
 
-            if (parameters.type_lin == "CG")
+            if (parameters.type_lin == "cg")
             {
                 // Manual condensation of the dilatation and pressure fields on
                 // a local level, and subsequent post-processing, took quite a
@@ -2559,6 +2561,18 @@ namespace Step44{
 
                 lin_it = solver_control_K_con_inv.last_step();
                 lin_res = solver_control_K_con_inv.last_value();
+            }
+            else if (parameters.type_lin == "Direct")
+            {
+                SolverControl cn;
+                PETScWrappers::SparseDirectMUMPS solver(cn, mpi_communicator);
+                solver.set_symmetric_mode(true);
+                solver.solve(tangent_matrix, newton_update, system_rhs); // THIS DOES NOT WORK. NO MATCHING FUNCTION CALL.
+
+                lin_it = 1;
+                lin_res = 0.0;
+
+                std::cout << " -- " << std::flush;
             }
             else
                 Assert (false, ExcMessage("Linear solver type not implemented"));
