@@ -5,3 +5,7 @@ cmake_install.cmake
 compile_commands.json
 .vscode/
 parallel-step-44
+.vtu
+.vtk
+.pvtu
+.pvd
