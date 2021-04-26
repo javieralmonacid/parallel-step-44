@@ -16,7 +16,7 @@ SET(TARGET "parallel-step-44")
 # in the "CMake in user projects" page accessible from the "User info"
 # page of the documentation.
 SET(TARGET_SRC
-  parallel-step-44.cc parameter-namespace.cc parameter-namespace.h
+  trilinos-parallel-step-44.cc parameter-namespace.cc parameter-namespace.h
   )
 
 # Usually, you will not need to modify anything beyond this point...

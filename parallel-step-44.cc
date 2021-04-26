@@ -52,7 +52,6 @@
 
 #include <deal.II/lac/block_sparsity_pattern.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
-//#include <deal.II/lac/affine_constraints.h> // NEW
 #include <deal.II/lac/constraint_matrix.h> // FROM STEP-44
 #include <deal.II/lac/sparsity_tools.h> // FROM STEP-55
 #include <deal.II/lac/full_matrix.h>
@@ -62,6 +61,15 @@
 #include <deal.II/lac/petsc_parallel_vector.h>
 #include <deal.II/lac/petsc_solver.h>
 #include <deal.II/lac/petsc_precondition.h>
+
+#include <deal.II/lac/block_vector.h>
+
+//#include <deal.II/lac/trilinos_block_sparse_matrix.h>
+//#include <deal.II/lac/trilinos_block_vector.h>
+//#include <deal.II/lac/trilinos_vector.h>
+//#include <deal.II/lac/trilinos_sparsity_pattern.h>
+//#include <deal.II/lac/trilinos_precondition.h>
+//#include <deal.II/lac/trilinos_linear_operator.h>
 
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/packaged_operation.h>
@@ -2283,7 +2291,7 @@ namespace Step44{
                   dof_handler_ref.end());
         for (; cell != endc; ++cell)
         {
-            pcout << "Beginning assemble_SC one cell" << std::endl;
+            
             assemble_sc_one_cell(cell, per_task_data);
             pcout << "End assemble_SC" << std::endl;
             copy_local_to_global_sc(per_task_data);
@@ -2310,11 +2318,23 @@ namespace Step44{
     Solid<dim>::assemble_sc_one_cell(const typename DoFHandler<dim>::active_cell_iterator &cell,
                                     PerTaskData_SC &data)
     {
+        pcout << "Beginning assemble_SC one cell" << std::endl;
         data.reset();
         cell->get_dof_indices(data.local_dof_indices);
-        data.k_orig.extract_submatrix_from(tangent_matrix,
-                                           data.local_dof_indices,
-                                           data.local_dof_indices);
+        //data.k_orig.extract_submatrix_from(tangent_matrix,
+        //                                   data.local_dof_indices,
+        //                                   data.local_dof_indices);
+        
+        data.k_orig = 0;
+        pcout << "PASSED!+++++++++++++" << std::endl;
+        for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                data.k_orig(i,j) = tangent_matrix(data.local_dof_indices[i], data.local_dof_indices[j]);
+        
+        // If tangent_matrix(data.local_dof_indices[i], data.local_dof_indices[j]) is not a finite number,
+        // a dealii exception is raised.
+        pcout << "PASSED 2!+++++++++++++" << std::endl;
+
         data.k_pu.extract_submatrix_from(data.k_orig,
                                          element_indices_p,
                                          element_indices_u);
@@ -2562,7 +2582,7 @@ namespace Step44{
                 lin_it = solver_control_K_con_inv.last_step();
                 lin_res = solver_control_K_con_inv.last_value();
             }
-            else if (parameters.type_lin == "Direct")
+            /*else if (parameters.type_lin == "Direct")
             {
                 SolverControl cn;
                 PETScWrappers::SparseDirectMUMPS solver(cn, mpi_communicator);
@@ -2573,7 +2593,7 @@ namespace Step44{
                 lin_res = 0.0;
 
                 std::cout << " -- " << std::flush;
-            }
+            }*/
             else
                 Assert (false, ExcMessage("Linear solver type not implemented"));
             
