@@ -1,9 +1,9 @@
 ##
-#  CMake script for the step-44 tutorial program:
+#  CMake script for the trilinos-parallel-step-44 program:
 ##
 
 # Set the name of the project and target:
-SET(TARGET "parallel-step-44")
+SET(TARGET "trilinos-parallel-step-44")
 
 # Declare all source files the target consists of. Here, this is only
 # the one step-X.cc file, but as you expand your project you may wish
@@ -37,17 +37,18 @@ ENDIF()
 #
 # Are all dependencies fulfilled?
 #
-IF(NOT DEAL_II_WITH_MPI OR NOT DEAL_II_WITH_PETSC OR DEAL_II_PETSC_WITH_COMPLEX) # keep in one line
+IF(NOT DEAL_II_WITH_CXX11 OR NOT DEAL_II_WITH_MPI OR NOT DEAL_II_WITH_TRILINOS OR NOT DEAL_II_WITH_P4EST) # keep in one line
   MESSAGE(FATAL_ERROR "
 Error! The deal.II library found at ${DEAL_II_PATH} was not configured with
+    DEAL_II_WITH_CXX11 = ON
     DEAL_II_WITH_MPI = ON
-    DEAL_II_WITH_PETSC = ON
-    DEAL_II_PETSC_WITH_COMPLEX = OFF
+    DEAL_II_WITH_TRILINOS = ON
+    DEAL_II_WITH_P4EST = ON
 One or all of these are OFF in your installation but are required to compile this project."
     )
 ENDIF()
 
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
-SET(CLEAN_UP_FILES *.log *.gmv *.gnuplot *.gpl *.eps *.pov *.vtk *.ucd *.d2 *.vtu *.pvtu)
+SET(CLEAN_UP_FILES *.log *.gmv *.gnuplot *.gpl *.eps *.pov *.vtk *.ucd *.d2 *.vtu *.pvtu *.pvd)
 PROJECT(${TARGET})
 DEAL_II_INVOKE_AUTOPILOT()

@@ -9,3 +9,5 @@ parallel-step-44
 *.vtk
 *.pvtu
 *.pvd
+parallel-step-44.cc
+trilinos-parallel-step-44

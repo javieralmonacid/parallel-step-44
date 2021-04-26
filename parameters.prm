@@ -11,7 +11,7 @@ end
 
 subsection Geometry
   # Global refinement level
-  set Global refinement   = 2
+  set Global refinement   = 4
 
   # Global grid scaling factor
   set Grid scale          = 1e-3
@@ -32,15 +32,19 @@ subsection Linear solver
   # Use static condensation and solve a 1-block system, or solve
   # the full 3-block system using Linear Operators and the Schur
   # complement
+  # ************  WARNING: PARAMETER NOT IN USE ****************
   set Use static condensation = true
 
   # Preconditioner type
+  # ************  WARNING: PARAMETER NOT IN USE ****************
   set Preconditioner type  = ssor
 
   # Preconditioner relaxation value
+  # ************  WARNING: PARAMETER NOT IN USE ****************
   set Preconditioner relaxation  = 0.65
 
   # Type of solver used to solve the linear system
+  # ************  WARNING: PARAMETER NOT IN USE ****************
   set Solver type              = cg
 end
 
@@ -68,7 +72,7 @@ end
 
 subsection Time
   # End time
-  set End time       = 1.0
+  set End time       = 0.6
 
   # Time step size
   set Time step size = 0.1
