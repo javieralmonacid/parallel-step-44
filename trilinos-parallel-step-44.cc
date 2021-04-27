@@ -486,7 +486,7 @@ namespace Step44
         // Also, keep track of the current time and the time spent evaluating
         // certain functions
         Time                time;
-        mutable TimerOutput timer;
+        TimerOutput  timer;
 
         // A storage object for quadrature point information. As opposed to
         // step-18, deal.II's native quadrature point data manager is employed
@@ -973,7 +973,7 @@ namespace Step44
     template <int dim>
     void Solid<dim>::system_setup(TrilinosWrappers::MPI::BlockVector &solution_delta)
     {
-        timer.enter_subsection("Setup system");
+        TimerOutput::Scope t(timer, "Setup system");
         pcout << "Setting up linear system..." << std::endl;
 
         block_component = std::vector<unsigned int> (n_components, u_block); // Displacement
@@ -1059,9 +1059,6 @@ namespace Step44
 
         // Setup quadrature point history
         setup_qph();
-
-        // Leave subsection
-        timer.leave_subsection();
     }
 
 // @sect4{Solid::setup_qph}
@@ -1099,7 +1096,7 @@ namespace Step44
     template <int dim>
     void Solid<dim>::update_qph(TrilinosWrappers::MPI::BlockVector &solution_delta)
     {
-        timer.enter_subsection("Update QPH data");
+        TimerOutput::Scope t(timer, "Update QPH data");
         const TrilinosWrappers::MPI::BlockVector solution_total(get_solution_total(solution_delta));
         const UpdateFlags uf_UQPH(update_values | update_gradients);
         ScratchData_UQPH scratch_data_uqph(fe, qf_cell, uf_UQPH, solution_total);
@@ -1107,8 +1104,6 @@ namespace Step44
         for (const auto &cell : dof_handler_ref.active_cell_iterators())
             if (cell->is_locally_owned())
                 update_qph_one_cell(cell, scratch_data_uqph);
-        
-        timer.leave_subsection();
     }
 
     template <int dim>
@@ -1154,7 +1149,7 @@ namespace Step44
     template <int dim>
     void Solid<dim>::set_initial_dilation(TrilinosWrappers::MPI::BlockVector &solution_n_relevant)
     {
-        timer.enter_subsection("Setup initial dilation");
+        TimerOutput::Scope t(timer, "Setup initial dilation");
         pcout << "    Setting up initial dilation ..." << std::endl;
         DoFHandler<dim> dof_handler_J(triangulation);
         FE_DGPMonomial<dim> fe_J(parameters.poly_degree - 1);
@@ -1248,8 +1243,7 @@ namespace Step44
         solution_n_relevant.block(J_block) = J_distributed;
         
         // We destroy the dof_handler_J object and leave the subsection.
-        dof_handler_J.clear();
-        timer.leave_subsection();      
+        dof_handler_J.clear();  
     }
 
 // @sect4{Solid::solve_nonlinear_timestep}
@@ -1497,7 +1491,7 @@ namespace Step44
     template <int dim>
     void Solid<dim>::assemble_system(const TrilinosWrappers::MPI::BlockVector &solution_delta)
     {
-        timer.enter_subsection("Assemble system");
+        TimerOutput::Scope t(timer, "Assemble system");
         pcout << " ASM_SYS " << std::flush;
         tangent_matrix = 0.0;
         system_rhs = 0.0;
@@ -1521,7 +1515,6 @@ namespace Step44
         
         tangent_matrix.compress(VectorOperation::add);
         system_rhs.compress(VectorOperation::add);
-        timer.leave_subsection();
     }
 
 // Since the assembly of the tangent_matrix and system_rhs are performed in the same function,
@@ -1912,7 +1905,7 @@ namespace Step44
         unsigned int lin_it = 0;
         double lin_res = 0.0;
 
-        timer.enter_subsection("Linear solver");
+        TimerOutput::Scope t(timer, "Linear solver");
         pcout << " SLV " << std::flush;
 
         // For ease of later use, we define some aliases for
@@ -1985,12 +1978,9 @@ namespace Step44
         d_u     = K_uu_con_inv*(f_u - K_up*(K_Jp_inv*f_J - K_pp_bar*f_p));
         lin_it  = solver_control_K_con_inv.last_step();
         lin_res = solver_control_K_con_inv.last_value();
-        timer.leave_subsection();
 
-        timer.enter_subsection("Linear solver postprocessing");
         d_J = K_pJ_inv*(f_p - K_pu*d_u);
         d_p = K_Jp_inv*(f_J - K_JJ*d_J);
-        timer.leave_subsection();
 
         constraints.distribute(newton_update);
         return std::make_pair(lin_it, lin_res);
@@ -2039,7 +2029,7 @@ namespace Step44
     template <int dim>
     void Solid<dim>::output_results() const
     {
-        timer.enter_subsection("Output results");
+        TimerOutput::Scope t(timer, "Output results");
         TrilinosWrappers::MPI::BlockVector solution_total (locally_owned_partitioning,
                                                            locally_relevant_partitioning,
                                                            mpi_communicator,
@@ -2205,7 +2195,6 @@ namespace Step44
             std::ofstream pvd_output (filename_pvd.c_str());
             DataOutBase::write_pvd_record (pvd_output, time_and_name_history);
         }
-        timer.leave_subsection();
     }
 
 }// END OF NAMESPACE
