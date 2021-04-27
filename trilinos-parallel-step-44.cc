@@ -607,8 +607,12 @@ namespace Step44
         pcout(std::cout, this_mpi_process == 0),
         parameters(input_file),
         vol_reference(0.),
+        //triangulation(mpi_communicator,
+        //              typename Triangulation<dim>::MeshSmoothing(Triangulation<dim>::maximum_smoothing)),
         triangulation(mpi_communicator,
-                      typename Triangulation<dim>::MeshSmoothing(Triangulation<dim>::maximum_smoothing)),
+                        typename Triangulation<dim>::MeshSmoothing(
+                        Triangulation<dim>::smoothing_on_refinement |
+                        Triangulation<dim>::smoothing_on_coarsening)),
         time(parameters.end_time, parameters.delta_t),
         timer(mpi_communicator,
               pcout,
@@ -916,12 +920,14 @@ namespace Step44
     template <int dim>
     void Solid<dim>::make_grid()
     {
+        pcout << "BEGINNING MAKE_GRID" << std::endl;
         GridGenerator::hyper_rectangle(triangulation,
                                        (dim==3 ? Point<dim>(0.0, 0.0, 0.0) : Point<dim>(0.0, 0.0)),
                                        (dim==3 ? Point<dim>(1.0, 1.0, 1.0) : Point<dim>(1.0, 1.0)),
                                         true);
         GridTools::scale(parameters.scale, triangulation);
         triangulation.refine_global(std::max (1U, parameters.global_refinement));
+        pcout << "REFINED GLOBAL" << std::endl;
 
         // We compute the reference volume of the triangulation. GridTools::volume
         // automatically performs a collective operation when the triangulation is
@@ -1068,23 +1074,26 @@ namespace Step44
     void Solid<dim>::setup_qph()
     {
         pcout << "    Setting up quadrature point data...\n";
-        quadrature_point_history.initialize(triangulation.begin_active(),
-                                            triangulation.end(),
-                                            n_q_points);
-        FilteredIterator<typename DoFHandler<dim>::active_cell_iterator>
-            cell (IteratorFilters::SubdomainEqualTo(this_mpi_process), 
-                  dof_handler_ref.begin_active()),
-            endc (IteratorFilters::SubdomainEqualTo(this_mpi_process),
-                  dof_handler_ref.end());
-        for (; cell!=endc; ++cell)
+        //quadrature_point_history.initialize(triangulation.begin_active(),
+        //                                    triangulation.end(),
+        //                                    n_q_points);
         {
-            Assert(cell->subdomain_id()==this_mpi_process, ExcInternalError());
-            const std::vector<std::shared_ptr<PointHistory<dim> > >
-                lqph = quadrature_point_history.get_data(cell);
-            Assert(lqph.size() == n_q_points, ExcInternalError());
-            for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
-                lqph[q_point]->setup_lqp(parameters);
+            FilteredIterator<typename DoFHandler<dim>::active_cell_iterator>
+            f_cell (IteratorFilters::SubdomainEqualTo(this_mpi_process), dof_handler_ref.begin_active()),
+            f_endc (IteratorFilters::SubdomainEqualTo(this_mpi_process), dof_handler_ref.end());
+            quadrature_point_history.initialize(f_cell, f_endc, n_q_points);
         }
+        
+        for (const auto &cell : dof_handler_ref.active_cell_iterators())
+            if (cell->is_locally_owned())
+            {
+                Assert(cell->subdomain_id()==this_mpi_process, ExcInternalError());
+                const std::vector<std::shared_ptr<PointHistory<dim> > >
+                    lqph = quadrature_point_history.get_data(cell);
+                Assert(lqph.size() == n_q_points, ExcInternalError());
+                for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+                    lqph[q_point]->setup_lqp(parameters);
+            }
     }
 
     template <int dim>
