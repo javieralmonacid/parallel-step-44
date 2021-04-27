@@ -486,7 +486,7 @@ namespace Step44
         // Also, keep track of the current time and the time spent evaluating
         // certain functions
         Time                time;
-        TimerOutput  timer;
+        mutable TimerOutput  timer;
 
         // A storage object for quadrature point information. As opposed to
         // step-18, deal.II's native quadrature point data manager is employed
@@ -740,6 +740,9 @@ namespace Step44
             output_results();
             time.increment();
         }
+
+        timer.print_summary();
+        timer.reset();
     }
 
 // @sect3{Private interface}
@@ -920,14 +923,12 @@ namespace Step44
     template <int dim>
     void Solid<dim>::make_grid()
     {
-        pcout << "BEGINNING MAKE_GRID" << std::endl;
         GridGenerator::hyper_rectangle(triangulation,
                                        (dim==3 ? Point<dim>(0.0, 0.0, 0.0) : Point<dim>(0.0, 0.0)),
                                        (dim==3 ? Point<dim>(1.0, 1.0, 1.0) : Point<dim>(1.0, 1.0)),
                                         true);
         GridTools::scale(parameters.scale, triangulation);
         triangulation.refine_global(std::max (1U, parameters.global_refinement));
-        pcout << "REFINED GLOBAL" << std::endl;
 
         // We compute the reference volume of the triangulation. GridTools::volume
         // automatically performs a collective operation when the triangulation is

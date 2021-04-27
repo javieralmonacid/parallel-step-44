@@ -33,7 +33,7 @@ subsection Linear solver
   # the full 3-block system using Linear Operators and the Schur
   # complement
   # ************  WARNING: PARAMETER NOT IN USE ****************
-  set Use static condensation = true
+  set Use static condensation = false
 
   # Preconditioner type
   # ************  WARNING: PARAMETER NOT IN USE ****************
