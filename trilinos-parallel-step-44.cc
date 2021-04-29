@@ -695,12 +695,16 @@ namespace Step44
     template <int dim>
     void Solid<dim>::run()
     {
+    	pcout << "********* PARALLEL STEP 44 *********" << std::endl;
+	pcout << "Running with " << Utilities::MPI::n_mpi_processes(mpi_communicator) << " processes" << std::endl;
+	pcout << std::endl;
         // We first declare the incremental solution update $\varDelta
         // \mathbf{\Xi}:= \{\varDelta \mathbf{u},\varDelta \widetilde{p},
         // \varDelta \widetilde{J} \}$.
         TrilinosWrappers::MPI::BlockVector solution_delta;
         
         make_grid();
+	pcout << "Total number of active cells: " << triangulation.n_global_active_cells() << std::endl;
         system_setup(solution_delta); // This step will initialize solution_delta and solution_n_relevant
 
         // Care must be taken (or at least some thought given) when imposing the
