@@ -1,8 +1,5 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2010 - 2021 by the deal.II authors and
- *                              & Javier A. Almonacid
- *
  * This file is *NOT* part of the deal.II library.
  *
  * The deal.II library is free software; you can use it, redistribute
@@ -13,7 +10,6 @@
  * the top level of the deal.II distribution.
  *
  * ---------------------------------------------------------------------
-
  *
  * Author: Javier A. Almonacid, Simon Fraser University, 2021
  *         
@@ -38,7 +34,7 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/grid_in.h>
-#include <deal.II/grid/grid_out.h> // not in step-44
+#include <deal.II/grid/grid_out.h> 
 //#include <deal.II/grid/tria.h>
 #include <deal.II/distributed/tria.h>
 #include <deal.II/grid/tria_boundary_lib.h>
@@ -59,7 +55,6 @@
 #include <deal.II/lac/trilinos_block_sparse_matrix.h>
 #include <deal.II/lac/trilinos_block_vector.h>
 #include <deal.II/lac/trilinos_vector.h>
-//#include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/lac/trilinos_precondition.h>
 #include <deal.II/lac/solver_selector.h>
 
@@ -478,8 +473,6 @@ namespace Step44
         double vol_reference;
 
         // ...and description of the geometry on which the problem is solved:
-        // DESCRIBE=======================================================================
-        // ==============================================================================
         // ==== parallel::shared vs parallel::distributed
         parallel::distributed::Triangulation<dim> triangulation;
 
@@ -607,8 +600,6 @@ namespace Step44
         pcout(std::cout, this_mpi_process == 0),
         parameters(input_file),
         vol_reference(0.),
-        //triangulation(mpi_communicator,
-        //              typename Triangulation<dim>::MeshSmoothing(Triangulation<dim>::maximum_smoothing)),
         triangulation(mpi_communicator,
                         typename Triangulation<dim>::MeshSmoothing(
                         Triangulation<dim>::smoothing_on_refinement |
@@ -696,16 +687,20 @@ namespace Step44
     void Solid<dim>::run()
     {
     	pcout << "********* PARALLEL STEP 44 *********" << std::endl;
-	pcout << "Running with " << Utilities::MPI::n_mpi_processes(mpi_communicator) << " processes" << std::endl;
-	pcout << std::endl;
+	    pcout << "Running with " << Utilities::MPI::n_mpi_processes(mpi_communicator) 
+              << " processes" << std::endl;
+	    pcout << std::endl;
         // We first declare the incremental solution update $\varDelta
         // \mathbf{\Xi}:= \{\varDelta \mathbf{u},\varDelta \widetilde{p},
         // \varDelta \widetilde{J} \}$.
         TrilinosWrappers::MPI::BlockVector solution_delta;
         
         make_grid();
-	pcout << "Total number of active cells: " << triangulation.n_global_active_cells() << std::endl;
-        system_setup(solution_delta); // This step will initialize solution_delta and solution_n_relevant
+	    pcout << "Total number of active cells: " 
+              << triangulation.n_global_active_cells() << std::endl;
+
+        // The following step will initialize solution_delta and solution_n_relevant
+        system_setup(solution_delta); 
 
         // Care must be taken (or at least some thought given) when imposing the
         // constraint $\widetilde{J}=1$ on the initial solution field. The constraint
@@ -718,7 +713,6 @@ namespace Step44
         // Hence, we construct an alternative called set_initial_dilation() that 
         // constructs an L2-projection of $\widetilde{J}=1$ onto the finite element space
         // using tools from step-40.
-        
         set_initial_dilation(solution_n_relevant);
 
         output_results();
@@ -1492,7 +1486,6 @@ namespace Step44
 
 // @sect4{Solid::assemble_system}
 
-// Description needed
     template <int dim>
     void Solid<dim>::assemble_system(const TrilinosWrappers::MPI::BlockVector &solution_delta)
     {
@@ -2202,7 +2195,7 @@ namespace Step44
         }
     }
 
-}// END OF NAMESPACE
+}// END OF NAMESPACE Step44
 
 // @sect3{Main function}
 // Lastly we provide the main driver function.

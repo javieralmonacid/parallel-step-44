@@ -1,7 +1,6 @@
 #include <deal.II/base/parameter_handler.h>
 #include "parameter-namespace.h"
 
-//using namespace dealii;
 namespace Parameters
 {
     void FESystem::declare_parameters(ParameterHandler &prm)
