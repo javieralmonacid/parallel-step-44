@@ -12,6 +12,9 @@
  * ---------------------------------------------------------------------
  *
  * Author: Javier A. Almonacid, Simon Fraser University, 2021
+ *         Final Project
+ *         CMPT 851: Parallel Programming for Scientific Computing
+ *         University of Saskatchewan
  *         
  */
 
