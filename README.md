@@ -6,7 +6,7 @@ Recent advances in understanding how muscles deform have led to a new, more info
 
 In this work, a parallel solver for quasi-static skeletal muscle deformation is discussed. As a stepping stone, a distributed version of a solver for Neo-Hookean solid deformation is constructed and scaling analyses are performed on this code. This new code is designed to run on a distributed architecture, building upon the existing deal.II implementation. The decomposition of the mesh is achieved through the p4est library, while the solution of the corresponding system of equations is coded using the Trilinos library. We also describe an updated script that can be used to install deal.II and link all the necessary dependencies.
 
-See the [report](project_report.pdf) for more details!
+See the report (`project-report.pdf`) for more details!
 
 ## Scaling before parallelization
 ![](figs/performance-sm.png)
