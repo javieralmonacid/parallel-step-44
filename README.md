@@ -1,3 +1,5 @@
+> Main file: `trilinos-parallel-step-44.cc`
+
 # parallel-step-44: an MPI-based version of deal.II's step-44
 
 ![](figs/partitions-variables.png)
